@@ -8,7 +8,6 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -24,8 +23,8 @@ import io.reactivex.annotations.Nullable;
  * Created by 160R on 21.04.17.
  */
 public final class ActivityRx {
-    private static final Map<Class<? extends Activity>, State<? extends Activity>> STATE = new HashMap<>(5);
-    private static final Map<Class<? extends Activity>, Set<ObservableEmitter>> EMITTERS = new HashMap<>(20);
+    private static final Map<String, State<? extends Activity>> STATE = new HashMap<>(5);
+    private static final Map<String, Set<ObservableEmitter>> EMITTERS = new HashMap<>(20);
 
     private static final ImmediateIfOnMainThreadScheduler SCHEDULER = new ImmediateIfOnMainThreadScheduler();
 
@@ -33,11 +32,11 @@ public final class ActivityRx {
 
     private static ObservableTransformer<State<? extends Activity>, State<? extends Activity>> hook = new ObservableTransformer<State<? extends Activity>, State<? extends Activity>>() {
 
-                @Override
-                public ObservableSource<State<? extends Activity>> apply(@NonNull Observable<State<? extends Activity>> upstream) {
-                    return upstream;
-                }
-            };
+        @Override
+        public ObservableSource<State<? extends Activity>> apply(@NonNull Observable<State<? extends Activity>> upstream) {
+            return upstream;
+        }
+    };
 
     public static void hook(@NonNull final ObservableTransformer<State<? extends Activity>, State<? extends Activity>> hook) {
         ActivityRx.hook = hook;
@@ -83,8 +82,6 @@ public final class ActivityRx {
                 public void onActivitySaveInstanceState(Activity a, Bundle to) {
                     setState(a, On.SAVE, to);
                 }
-
-
             });
         } else {
             throw new ExceptionInInitializerError("already initialized");
@@ -92,23 +89,23 @@ public final class ActivityRx {
     }
 
     private static void setState(Activity a, On on, @Nullable Bundle bundle) {
-        Class<? extends Activity> key = a.getClass();
+        String component = a.getComponentName().getClassName();
 
         State<? extends Activity> current;
         if (on == On.STOP) {
-            current = new State<>(key, on, null, null);
+            current = new State<>(component, on, null, null);
         } else {
-            current = new State<>(key, on, a, bundle);
+            current = new State<>(component, on, a, bundle);
         }
 
         if (on == On.DESTROY) {
-            STATE.remove(key);
+            STATE.remove(component);
         } else {
-            STATE.put(key, current);
+            STATE.put(component, current);
         }
 
-        for (Map.Entry<Class<? extends Activity>, Set<ObservableEmitter>> entry : EMITTERS.entrySet()) {
-            if (key == entry.getKey()) {
+        for (Map.Entry<String, Set<ObservableEmitter>> entry : EMITTERS.entrySet()) {
+            if (component.equals(entry.getKey())) {
                 for (ObservableEmitter emitter : entry.getValue()) {
                     emitter.onNext(current);
                 }
@@ -117,12 +114,12 @@ public final class ActivityRx {
     }
 
 
-    private static <A extends Activity> Observable<State<A>> subscribeUntilDestroy(ActivityObservableOnSubscribe<A> behavior) {
+    private static <A extends Activity> Observable<State<A>> subscribeUntilDestroy(ActivityObservableBehavior<A> behavior) {
         return subscribe(behavior)
                 .takeUntil(behavior);
     }
 
-    private static <A extends Activity> Observable<State<A>> subscribe(ActivityObservableOnSubscribe<A> behavior) {
+    private static <A extends Activity> Observable<State<A>> subscribe(ActivityObservableBehavior<A> behavior) {
         return Observable
                 .create(behavior)
                 .subscribeOn(SCHEDULER)
@@ -134,51 +131,59 @@ public final class ActivityRx {
     }
 
 
-    public static <A extends Activity> Observable<State<A>> observe(final Class<A> key) {
-        return subscribe(new ActivityObservableOnSubscribe<>(STATE, EMITTERS, key));
+    public static <A extends Activity> Observable<State<A>> observe(final Class<A> component) {
+        return subscribe(new ActivityObservableBehavior<>(STATE, EMITTERS, component));
     }
 
-    public static <A extends Activity> Observable<State<A>> bind(final Class<A> key) {
-        return subscribeUntilDestroy(new ActivityObservableOnSubscribe<>(STATE, EMITTERS, key));
+    public static <A extends Activity> Observable<State<A>> observe(final A activity) {
+        return subscribe(new ActivityObservableBehavior<A>(STATE, EMITTERS, activity.getComponentName().getClassName()));
     }
 
-    public static <A extends Activity> Observable<State<A>> swap(final Activity current, final Class<A> key) {
-        return subscribeUntilDestroy(new ActivityObservableOnSubscribe<A>(STATE, EMITTERS, key){
+    public static <A extends Activity> Observable<State<A>> bind(final Class<A> component) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<>(STATE, EMITTERS, component));
+    }
+
+    public static <A extends Activity> Observable<State<A>> bind(final A activity) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATE, EMITTERS, activity.getComponentName().getClassName()));
+    }
+
+    public static <A extends Activity> Observable<State<A>> swap(final Activity current, final Class<A> component) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATE, EMITTERS, component) {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(current, key));
+                context.startActivity(new Intent(current, component));
                 current.finish();
             }
         });
     }
 
-    public static <A extends Activity> Observable<State<A>> start(final Class<A> key) {
-        return subscribeUntilDestroy(new ActivityObservableOnSubscribe<A>(STATE, EMITTERS, key) {
+    public static <A extends Activity> Observable<State<A>> start(final Class<A> component) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATE, EMITTERS, component) {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(context, key));
+                context.startActivity(new Intent(context, component));
             }
         });
     }
 
-    public static <A extends Activity> Observable<State<A>> start(final Class<A> key, final Bundle extras) {
-        return subscribeUntilDestroy(new ActivityObservableOnSubscribe<A>(STATE, EMITTERS, key) {
+    public static <A extends Activity> Observable<State<A>> start(final Class<A> component, final Bundle extras) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATE, EMITTERS, component) {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(context, key).putExtras(extras));
+                context.startActivity(new Intent(context, component).putExtras(extras));
             }
         });
     }
 
-    public static <A extends Activity> Observable<State<A>> start(final Class<A> key, final Intent intent) {
-        return subscribeUntilDestroy(new ActivityObservableOnSubscribe<A>(STATE, EMITTERS, key) {
+    public static <A extends Activity> Observable<State<A>> start(final Class<A> component, final Intent intent) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATE, EMITTERS, component) {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(intent.setClass(context, key));
+                context.startActivity(intent.setClass(context, component));
             }
         });
     }
