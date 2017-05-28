@@ -1,6 +1,7 @@
 package i60r.activityrx;
 
 import android.app.Activity;
+import android.util.Log;
 
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -9,7 +10,7 @@ import java.util.Set;
 import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableOnSubscribe;
 import io.reactivex.annotations.NonNull;
-import io.reactivex.functions.Cancellable;
+import io.reactivex.functions.Action;
 import io.reactivex.functions.Consumer;
 import io.reactivex.functions.Function;
 import io.reactivex.functions.Predicate;
@@ -23,10 +24,10 @@ class ActivityObservableBehavior<A extends Activity> implements
         Consumer<State<A>>,
         Function<State, State<A>>,
         Predicate<State<A>>,
-        Cancellable {
+        Action {
 
-    private final Map<String, State<? extends Activity>> states;
     private final Map<String, Set<ObservableEmitter>> emitters;
+    private final Set<State<? extends Activity>> states;
     private final String component;
 
     private ObservableEmitter emitter = null;
@@ -34,7 +35,7 @@ class ActivityObservableBehavior<A extends Activity> implements
 
 
     ActivityObservableBehavior(
-            final Map<String, State<? extends Activity>> states,
+            final Set<State<? extends Activity>> states,
             final Map<String, Set<ObservableEmitter>> emitters,
             final String component) {
         this.emitters = emitters;
@@ -43,7 +44,7 @@ class ActivityObservableBehavior<A extends Activity> implements
     }
 
     ActivityObservableBehavior(
-            final Map<String, State<? extends Activity>> states,
+            final Set<State<? extends Activity>> states,
             final Map<String, Set<ObservableEmitter>> emitters,
             final Class<A> activityClass) {
         this(states, emitters, activityClass.getName());
@@ -55,7 +56,13 @@ class ActivityObservableBehavior<A extends Activity> implements
      */
     @Override
     public void subscribe(@NonNull ObservableEmitter<State<A>> emitter) throws Exception {
-        State<? extends Activity> current = states.get(component);
+        State<? extends Activity> current = null;
+        for (State<? extends Activity> state : states) {
+            if (state.component.equals(component)) {
+                current = state;
+                break;
+            }
+        }
         Set<ObservableEmitter> queue = emitters.get(component);
 
         if (current == null) {
@@ -69,7 +76,6 @@ class ActivityObservableBehavior<A extends Activity> implements
 
         queue.add(emitter);
         emitters.put(component, queue);
-        emitter.setCancellable(this);
         emitter.onNext(apply(current));
     }
 
@@ -110,7 +116,7 @@ class ActivityObservableBehavior<A extends Activity> implements
      * Used to clean up on subscription disposed
      */
     @Override
-    public void cancel() throws Exception {
+    public void run() throws Exception {
         Set<ObservableEmitter> queue = emitters.get(component);
         if (queue != null && emitter != null) {
             queue.remove(emitter);

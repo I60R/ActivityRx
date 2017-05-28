@@ -1,1 +1,1 @@
-include ':activityrx'
+include ':activityrx', ':example'

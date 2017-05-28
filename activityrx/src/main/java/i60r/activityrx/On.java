@@ -11,11 +11,13 @@ public enum On {
 
     RESUME  (false, true),
     START   (true,  true),
+    CHANGE  (true, true),
     PAUSE   (false, true),
 
     SAVE    (false, true),
 
     STOP    (false, true),
+
     DESTROY (false, false);
 
     public final boolean visible;
