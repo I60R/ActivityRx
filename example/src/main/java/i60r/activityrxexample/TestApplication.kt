@@ -21,7 +21,7 @@ class TestApplication : Application() {
                 .subscribe {
                     Log.d("~~~ ~~~ ~>", "${it.id} ~> ${it.on}")
                     if (it.on == On.RESUME) {
-                        Log.d("==>", "<==")
+                        Log.d("==>", "*\n*\n*\n*")
                     }
                 }
 
