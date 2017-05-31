@@ -1,11 +1,9 @@
 package i60r.activityrx;
 
 import android.app.Activity;
-import android.util.Log;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Set;
 
 import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableOnSubscribe;
@@ -26,8 +24,8 @@ class ActivityObservableBehavior<A extends Activity> implements
         Predicate<State<A>>,
         Action {
 
-    private final Map<String, Set<ObservableEmitter>> emitters;
-    private final Set<State<? extends Activity>> states;
+    private final LinkedHashMap<String, LinkedHashSet<ObservableEmitter>> emitters;
+    private final LinkedHashSet<State<? extends Activity>> states;
     private final String component;
 
     private ObservableEmitter emitter = null;
@@ -35,8 +33,8 @@ class ActivityObservableBehavior<A extends Activity> implements
 
 
     ActivityObservableBehavior(
-            final Set<State<? extends Activity>> states,
-            final Map<String, Set<ObservableEmitter>> emitters,
+            final LinkedHashSet<State<? extends Activity>> states,
+            final LinkedHashMap<String, LinkedHashSet<ObservableEmitter>> emitters,
             final String component) {
         this.emitters = emitters;
         this.states = states;
@@ -44,8 +42,8 @@ class ActivityObservableBehavior<A extends Activity> implements
     }
 
     ActivityObservableBehavior(
-            final Set<State<? extends Activity>> states,
-            final Map<String, Set<ObservableEmitter>> emitters,
+            final LinkedHashSet<State<? extends Activity>> states,
+            final LinkedHashMap<String, LinkedHashSet<ObservableEmitter>> emitters,
             final Class<A> activityClass) {
         this(states, emitters, activityClass.getName());
     }
@@ -58,16 +56,16 @@ class ActivityObservableBehavior<A extends Activity> implements
     public void subscribe(@NonNull ObservableEmitter<State<A>> emitter) throws Exception {
         State<? extends Activity> current = null;
         for (State<? extends Activity> state : states) {
-            if (state.component.equals(component)) {
+            if (state.id.equals(component)) {
                 current = state;
                 break;
             }
         }
-        Set<ObservableEmitter> queue = emitters.get(component);
-
         if (current == null) {
             current = new State<>(component, On.ABSENT, null, null);
         }
+
+        LinkedHashSet<ObservableEmitter> queue = emitters.get(component);
         if (queue == null) {
             queue = new LinkedHashSet<>(5);
         }
@@ -84,6 +82,7 @@ class ActivityObservableBehavior<A extends Activity> implements
      * Called to cast State of any Activity to concrete Activity
      */
     @Override
+    @SuppressWarnings("unchecked")
     public State<A> apply(@NonNull State state) throws Exception {
         return (State<A>) state;
     }
@@ -117,7 +116,7 @@ class ActivityObservableBehavior<A extends Activity> implements
      */
     @Override
     public void run() throws Exception {
-        Set<ObservableEmitter> queue = emitters.get(component);
+        LinkedHashSet<ObservableEmitter> queue = emitters.get(component);
         if (queue != null && emitter != null) {
             queue.remove(emitter);
         }

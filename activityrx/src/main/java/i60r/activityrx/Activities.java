@@ -7,33 +7,32 @@ import android.content.ComponentCallbacks;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
-import android.util.Log;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import com.github.kubode.rx.android.schedulers.ImmediateLooperScheduler;
+
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Set;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableTransformer;
 import io.reactivex.annotations.NonNull;
+import io.reactivex.annotations.Nullable;
 import io.reactivex.internal.functions.ObjectHelper;
 import io.reactivex.subjects.PublishSubject;
-import io.reactivex.subjects.Subject;
 
 
 /***
  * Created by 160R on 21.04.17.
  */
-public final class ActivityRx {
-    private static final Set<State<? extends Activity>> STATES = new HashSet<>(5);
-    private static final Map<String, Set<ObservableEmitter>> SUBSCRIPTIONS = new HashMap<>(20);
-    private static final Set<ObservableEmitter> BUFFER = new HashSet<>(10);
-    private static final Subject<State<? extends Activity>> EVENTS = PublishSubject.create();
+public final class Activities {
+    private static final PublishSubject<State<? extends Activity>> EVENTS = PublishSubject.create();
+    private static final LinkedHashSet <State<? extends Activity>> STATES = new LinkedHashSet<>(10);
 
-    private static final ImmediateIfOnMainThreadScheduler SCHEDULER = new ImmediateIfOnMainThreadScheduler();
+    private static final LinkedHashMap<String, LinkedHashSet<ObservableEmitter>> EMITTERS = new LinkedHashMap<>(10);
+    private static final LinkedHashSet                      <ObservableEmitter>  BUFFER = new LinkedHashSet<>(10);
 
     private static ObservableTransformer<State<? extends Activity>, State<? extends Activity>> hook = new DefaultOnEventsTransformer();
 
@@ -42,23 +41,25 @@ public final class ActivityRx {
 
     public static void modify(@NonNull final ObservableTransformer<State<? extends Activity>, State<? extends Activity>> hook) {
         ObjectHelper.requireNonNull(hook, "can't be null");
-        if (!(ActivityRx.hook instanceof DefaultOnEventsTransformer)) throw new IllegalAccessError("hook can't be changed");
-        ActivityRx.hook = hook;
+        if (!(Activities.hook instanceof DefaultOnEventsTransformer)) { throw new IllegalAccessError("hook can't be changed"); }
+        Activities.hook = hook;
     }
 
     public static void init(Application application) {
         ObjectHelper.requireNonNull(application, "can't be null");
-        ActivityRx.context = application;
+        if (Activities.context != null) { throw new IllegalAccessError("already initialized"); }
+        Activities.context = application;
 
         application.registerComponentCallbacks(new ComponentCallbacks() {
 
             @Override
+            @SuppressWarnings("unchecked")
             public void onConfigurationChanged(Configuration newConfig) {
                 for (State<? extends Activity> state : STATES) {
-                    State<Activity> newState = new State<>(state.component, On.CHANGE, state.ui, null);
+                    State<Activity> newState = new State<>(state.id, On.CHANGE, state.ui, null);
                     EVENTS.onNext(newState);
 
-                    Set<ObservableEmitter> emitters = SUBSCRIPTIONS.get(state.component);
+                    LinkedHashSet<ObservableEmitter> emitters = EMITTERS.get(state.id);
                     if (emitters != null) {
                         BUFFER.addAll(emitters);
                         for (ObservableEmitter emitter : BUFFER) {
@@ -113,13 +114,20 @@ public final class ActivityRx {
         });
     }
 
-    private static void setState(@NonNull String component, On on, Activity activity, Bundle bundle) {
-        State<? extends Activity> newState = new State<>(component, on, activity, bundle);
+
+    @SuppressWarnings("unchecked")
+    private static void setState(
+            @NonNull String id,
+            @NonNull On on,
+            @Nullable Activity activity,
+            @Nullable Bundle bundle) {
+
+        State<? extends Activity> newState = new State<>(id, on, activity, bundle);
         EVENTS.onNext(newState);
 
         Iterator<State<? extends Activity>> iterator = STATES.iterator();
         while (iterator.hasNext()) {
-            if (iterator.next().component.equals(component)) {
+            if (iterator.next().id.equals(id)) {
                 iterator.remove();
                 break;
             }
@@ -128,8 +136,8 @@ public final class ActivityRx {
             STATES.add(newState);
         }
 
-        for (Map.Entry<String, Set<ObservableEmitter>> subscription : SUBSCRIPTIONS.entrySet()) {
-            if (subscription.getKey().equals(component)) {
+        for (Map.Entry<String, LinkedHashSet<ObservableEmitter>> subscription : EMITTERS.entrySet()) {
+            if (subscription.getKey().equals(id)) {
                 BUFFER.addAll(subscription.getValue());
             }
         }
@@ -150,9 +158,9 @@ public final class ActivityRx {
         return Observable
                 .create(behavior)
                 .doOnDispose(behavior)
-                .subscribeOn(SCHEDULER)
-                .unsubscribeOn(SCHEDULER)
-                .observeOn(SCHEDULER)
+                .subscribeOn(ImmediateLooperScheduler.MAIN)
+                .unsubscribeOn(ImmediateLooperScheduler.MAIN)
+                .observeOn(ImmediateLooperScheduler.MAIN)
                 .compose(hook)
                 .map(behavior)
                 .doOnNext(behavior);
@@ -161,48 +169,54 @@ public final class ActivityRx {
 
     public static Observable<State<? extends Activity>> events() {
         return EVENTS
-                .compose(hook);
+                .subscribeOn(ImmediateLooperScheduler.MAIN);
     }
 
-    public static <A extends Activity> Observable<State<A>> observe(final Class<A> component) {
-        return subscribe(new ActivityObservableBehavior<>(STATES, SUBSCRIPTIONS, component));
+    public static Observable<State<? extends Activity>> current() {
+        return Observable
+                .fromIterable(new LinkedHashSet<>(STATES))
+                .subscribeOn(ImmediateLooperScheduler.MAIN);
+    }
+
+    public static <A extends Activity> Observable<State<A>> observe(final Class<A> activityClass) {
+        return subscribe(new ActivityObservableBehavior<>(STATES, EMITTERS, activityClass));
     }
 
     public static <A extends Activity> Observable<State<A>> observe(final A activity) {
-        return subscribe(new ActivityObservableBehavior<A>(STATES, SUBSCRIPTIONS, activity.getComponentName().getClassName()));
+        return subscribe(new ActivityObservableBehavior<A>(STATES, EMITTERS, activity.getComponentName().getClassName()));
     }
 
-    public static <A extends Activity> Observable<State<A>> bind(final Class<A> component) {
-        return subscribeUntilDestroy(new ActivityObservableBehavior<>(STATES, SUBSCRIPTIONS, component));
+    public static <A extends Activity> Observable<State<A>> bind(final Class<A> activityClass) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<>(STATES, EMITTERS, activityClass));
     }
 
     public static <A extends Activity> Observable<State<A>> bind(final A activity) {
-        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, SUBSCRIPTIONS, activity.getComponentName().getClassName()));
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, EMITTERS, activity.getComponentName().getClassName()));
     }
 
 
-    public static <A extends Activity> Observable<State<A>> start(final Class<A> component) {
-        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, SUBSCRIPTIONS, component) {
+    public static <A extends Activity> Observable<State<A>> start(final Class<A> activityClass) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, EMITTERS, activityClass) {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(context, component));
+                context.startActivity(new Intent(context, activityClass));
             }
         });
     }
 
-    public static <A extends Activity> Observable<State<A>> start(final Class<A> component, final Bundle extras) {
-        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, SUBSCRIPTIONS, component) {
+    public static <A extends Activity> Observable<State<A>> start(final Class<A> activityClass, final Bundle extras) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, EMITTERS, activityClass) {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(context, component).putExtras(extras));
+                context.startActivity(new Intent(context, activityClass).putExtras(extras));
             }
         });
     }
 
     public static <A extends Activity> Observable<State<A>> start(final Intent intent) {
-        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, SUBSCRIPTIONS, intent.getComponent().getClassName()) {
+        return subscribeUntilDestroy(new ActivityObservableBehavior<A>(STATES, EMITTERS, intent.getComponent().getClassName()) {
 
             @Override
             protected void onAbsent() {
