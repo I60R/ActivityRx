@@ -2,6 +2,9 @@
 
 **without inheritance**
 
+[![](https://jitpack.io/v/I60R/ActivityRx.svg)](https://jitpack.io/#I60R/ActivityRx)
+[![](https://tokei.rs/b1/github/I60R/ActivityRx)](https://github.com/160R/ActivityRx)
+
 --------
 --------
 
