@@ -3,6 +3,7 @@ package i60r.activityrxexample
 import android.app.Application
 import android.util.Log
 import i60r.activityrx.Activities
+import i60r.activityrx.ActivityRx
 import i60r.activityrx.On
 
 
@@ -15,7 +16,7 @@ class TestApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        Activities.init(this)
+        ActivityRx.init(this)
 
         Activities.events()
                 .subscribe {

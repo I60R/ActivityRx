@@ -17,7 +17,6 @@ import java.util.Map;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableEmitter;
-import io.reactivex.ObservableTransformer;
 import io.reactivex.annotations.NonNull;
 import io.reactivex.annotations.Nullable;
 import io.reactivex.internal.functions.ObjectHelper;
@@ -34,22 +33,7 @@ public final class Activities {
     private static final LinkedHashMap<String, LinkedHashSet<ObservableEmitter>> EMITTERS = new LinkedHashMap<>(10);
     private static final LinkedHashSet                      <ObservableEmitter>  BUFFER = new LinkedHashSet<>(10);
 
-    private static ObservableTransformer<State<? extends Activity>, State<? extends Activity>> hook = new DefaultOnEventsTransformer();
-
-    private static Application context = null;
-
-
-    public static void modify(@NonNull final ObservableTransformer<State<? extends Activity>, State<? extends Activity>> hook) {
-        ObjectHelper.requireNonNull(hook, "can't be null");
-        if (!(Activities.hook instanceof DefaultOnEventsTransformer)) { throw new IllegalAccessError("hook can't be changed"); }
-        Activities.hook = hook;
-    }
-
-    public static void init(Application application) {
-        ObjectHelper.requireNonNull(application, "can't be null");
-        if (Activities.context != null) { throw new IllegalAccessError("already initialized"); }
-        Activities.context = application;
-
+    static void init(Application application) {
         application.registerComponentCallbacks(new ComponentCallbacks() {
 
             @Override
@@ -154,14 +138,14 @@ public final class Activities {
     }
 
     private static <A extends Activity> Observable<State<A>> subscribe(ActivityObservableBehavior<A> behavior) {
-        ObjectHelper.requireNonNull(context, "must be initialized");
+        ObjectHelper.requireNonNull(ActivityRx.context, "must be initialized");
         return Observable
                 .create(behavior)
                 .doOnDispose(behavior)
                 .subscribeOn(ImmediateLooperScheduler.MAIN)
                 .unsubscribeOn(ImmediateLooperScheduler.MAIN)
                 .observeOn(ImmediateLooperScheduler.MAIN)
-                .compose(hook)
+                .compose(ActivityRx.hook)
                 .map(behavior)
                 .doOnNext(behavior);
     }
@@ -200,7 +184,7 @@ public final class Activities {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(context, activityClass));
+                ActivityRx.context.startActivity(new Intent(ActivityRx.context, activityClass));
             }
         });
     }
@@ -210,7 +194,7 @@ public final class Activities {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(new Intent(context, activityClass).putExtras(extras));
+                ActivityRx.context.startActivity(new Intent(ActivityRx.context, activityClass).putExtras(extras));
             }
         });
     }
@@ -220,7 +204,7 @@ public final class Activities {
 
             @Override
             protected void onAbsent() {
-                context.startActivity(intent);
+                ActivityRx.context.startActivity(intent);
             }
         });
     }
