@@ -9,7 +9,7 @@
 --------
 
 ```kotlin
-        Activities.init(this)
+        ActivityRx.init(this)
 
         Activities.events()
                 .subscribe {
